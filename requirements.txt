@@ -1,0 +1,30 @@
+# 🔹 FastAPI core
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+
+# 🔹 Database
+sqlalchemy==2.0.30
+psycopg2-binary==2.9.9
+
+# 🔹 Migrations (optional but recommended)
+alembic==1.13.1
+
+# 🔹 Authentication
+python-jose==3.3.0
+passlib[bcrypt]==1.7.4
+
+# 🔹 Environment variables
+python-dotenv==1.0.1
+
+# 🔹 File handling (CV parsing)
+pymupdf==1.24.9
+pdfplumber==0.11.4
+
+# 🔹 HTTP requests (for Ollama)
+requests==2.32.3
+
+
+
+# 🔹 Utilities
+pydantic==2.7.1
+email-validator==2.1.1
