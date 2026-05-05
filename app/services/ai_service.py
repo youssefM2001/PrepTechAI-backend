@@ -345,6 +345,91 @@ Respond ONLY in JSON:
     "reason": "Incomplete evaluation"
 }
 
+def evaluate_coding_answer(question: str, answer: str):
+
+    prompt = f"""
+You are a senior software engineer conducting a coding interview.
+
+Evaluate the candidate's solution.
+
+Question:
+{question}
+
+Candidate Answer:
+{answer}
+
+Evaluation criteria:
+1. Correctness (does it solve the problem?)
+2. Code quality (clean, readable, structured)
+3. Edge cases handling
+4. Efficiency (time/space complexity)
+5. Explanation clarity
+
+Rules:
+- Be strict but fair
+- Reward partial solutions
+- Do NOT expect perfect code
+
+Respond ONLY in JSON:
+
+{{
+  "feedback": "...",
+  "score": 0,
+  "strengths": ["...", "..."],
+  "weaknesses": ["...", "..."],
+  "next_focus": "one improvement area"
+}}
+"""
+
+    try:
+        response = httpx.post(
+            "http://localhost:11434/api/generate",
+            json={
+                "model": "mistral",
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.2,
+                    "num_predict": 200
+                }
+            },
+            timeout=60.0
+        )
+
+        text = response.json()["response"].strip()
+
+        try:
+            result = json.loads(text)
+        except:
+            import re
+            match = re.search(r"\{.*\}", text, re.DOTALL)
+            if match:
+                result = json.loads(match.group())
+            else:
+                return {
+                    "feedback": text,
+                    "score": 5,
+                    "strengths": [],
+                    "weaknesses": [],
+                    "next_focus": "clarify solution"
+                }
+
+        return {
+            "feedback": result.get("feedback"),
+            "score": result.get("score", 5),
+            "strengths": result.get("strengths", []),
+            "weaknesses": result.get("weaknesses", []),
+            "next_focus": result.get("next_focus")
+        }
+
+    except Exception:
+        return {
+            "feedback": "Unable to evaluate coding answer",
+            "score": 5,
+            "strengths": [],
+            "weaknesses": [],
+            "next_focus": "clarify solution"
+        }
 
 # EXTRACT STRUCTURED DATA USING AI
 def extract_cv_data(cv_content: str):

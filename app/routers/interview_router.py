@@ -122,11 +122,12 @@ def next_question(
     )
     db.add(user_msg)
 
-    # 🔹 Evaluate answer (NEW STRUCTURE)
-    evaluation = ai_service.evaluate_answer(
-        last_question.content,
-        answer
-    )
+    last_q_type = getattr(last_question, "message_type", "theory")
+
+    if last_q_type == "coding":
+        evaluation = ai_service.evaluate_coding_answer(last_question.content , answer)
+    else:
+        evaluation = ai_service.evaluate_answer( last_question.content, answer)
 
     # 🔹 Load previous results
     if interview.result_json:
