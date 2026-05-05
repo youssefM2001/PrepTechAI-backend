@@ -85,27 +85,27 @@ def interview(
     }    
 
 
-
 @router.post('/{interview_id}/next')
 def next_question(
-    interview_id : int,
-    answer : str,
+    interview_id: int,
+    answer: str,
     current_user: User = Depends(auth_service.get_current_user),
     db: Session = Depends(database.get_db)
 ):
     interview = db.query(Interview).filter(
         Interview.id == interview_id
-        ).first()
-    
+    ).first()
+
     if not interview:
         raise HTTPException(status_code=404, detail='interview not found')
-    
+
     if interview.user_id != current_user.id:
         raise HTTPException(status_code=403, detail='unauthorized access')
-    
+
     if interview.is_finished:
         return {"message": "Interview already completed"}
-    
+
+    # 🔹 Get last AI question
     last_question = db.query(InterviewMessage).filter(
         InterviewMessage.interview_id == interview.id,
         InterviewMessage.role == "ai"
@@ -113,7 +113,8 @@ def next_question(
 
     if not last_question:
         raise HTTPException(status_code=400, detail="No question found")
-    
+
+    # 🔹 Save user answer
     user_msg = InterviewMessage(
         interview_id=interview.id,
         role="user",
@@ -121,13 +122,13 @@ def next_question(
     )
     db.add(user_msg)
 
+    # 🔹 Evaluate answer (NEW STRUCTURE)
     evaluation = ai_service.evaluate_answer(
-    last_question.content,
-    answer
+        last_question.content,
+        answer
     )
 
-
-    # ✅ FIX: Parse result_json if it's a string
+    # 🔹 Load previous results
     if interview.result_json:
         if isinstance(interview.result_json, str):
             try:
@@ -138,25 +139,23 @@ def next_question(
             result_data = interview.result_json
     else:
         result_data = {"answers": []}
-    
-    # Ensure answers list exists
+
     if "answers" not in result_data:
         result_data["answers"] = []
 
+    # 🔹 Store full evaluation (memory)
     result_data["answers"].append({
-    "question": last_question.content,
-    "answer": answer,
-    "feedback": evaluation["feedback"],
-    "score": evaluation["score"],
-    "strengths": evaluation["strengths"],
-    "weaknesses": evaluation["weaknesses"],
-    "next_focus": evaluation["next_focus"]
-})
+        "question": last_question.content,
+        "answer": answer,
+        "feedback": evaluation.get("feedback"),
+        "score": evaluation.get("score"),
+        "strengths": evaluation.get("strengths", []),
+        "weaknesses": evaluation.get("weaknesses", []),
+        "next_focus": evaluation.get("next_focus"),
+        "type": getattr(last_question, "message_type", "theory")  # 👈 important
+    })
 
-
-    # Save back as JSON string
     interview.result_json = json.dumps(result_data)
-
     db.commit()
 
     if interview.current_question_index >= interview.total_questions:
@@ -164,8 +163,6 @@ def next_question(
         report = ai_service.generate_final_report(result_data)
 
         interview.final_score = report["final_score"]
-
-        # store full report
         result_data["summary"] = report
 
         interview.result_json = json.dumps(result_data)
@@ -178,12 +175,12 @@ def next_question(
             "report": report
         }
 
-    
+    # 🔹 Load last messages (limit for context)
     messages = db.query(InterviewMessage)\
-    .filter(InterviewMessage.interview_id == interview.id)\
-    .order_by(InterviewMessage.id.desc())\
-    .limit(10)\
-    .all()[::-1]
+        .filter(InterviewMessage.interview_id == interview.id)\
+        .order_by(InterviewMessage.id.desc())\
+        .limit(10)\
+        .all()[::-1]
 
     history = [
         {"role": msg.role, "content": msg.content}
@@ -195,21 +192,27 @@ def next_question(
 
     formatted_cv = interview.cv_summary
 
-    next_q = ai_service.generate_next_question(
+    # 🔹 Generate next question (NOW RETURNS JSON)
+    result = ai_service.generate_next_question(
         formatted_cv,
         job.description,
         history,
-        result_data,   # ✅ pass memory here
+        result_data,
         interview.difficulty,
         interview.type
     )
 
+    next_q = result["question"]
+    q_type = result["type"]
 
+    # 🔹 Store AI question WITH TYPE
     ai_msg = InterviewMessage(
         interview_id=interview.id,
         role="ai",
-        content=next_q
+        content=next_q,
+        message_type=q_type   # 👈 CRUCIAL
     )
+
     db.add(ai_msg)
 
     interview.current_question_index += 1
@@ -217,9 +220,11 @@ def next_question(
 
     return {
         "question": next_q,
+        "type": q_type,  # 👈 optional (useful for frontend)
         "current": interview.current_question_index,
         "total": interview.total_questions
     }
+
 
 @router.get('/{interview_id}/result')
 def get_interview_result(
@@ -258,6 +263,7 @@ def get_interview_result(
         "summary": result_data.get("summary", {}),
         "answers": result_data.get("answers", [])
     }
+
 
 @router.get('/my')
 def get_my_interviews(

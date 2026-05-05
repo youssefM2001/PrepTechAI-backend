@@ -16,4 +16,6 @@ class InterviewMessage(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    message_type = Column(String, default="theory")
+    
     interview = relationship("Interview", back_populates="messages")

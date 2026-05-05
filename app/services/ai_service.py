@@ -9,7 +9,7 @@ def generate_first_question(formatted_cv, job_description_content, difficulty, t
     job_description_content = job_description_content[:2000]
 
     prompt = f"""
-You are a strict and experienced interviewer.
+You are a experienced interviewer.
 
 Candidate Profile:
 {formatted_cv}
@@ -55,9 +55,6 @@ Output ONLY the question.
     except Exception:
         return "Tell me about yourself."
     
-
-
-
 
 def evaluate_answer(question: str, answer: str):
 
@@ -143,24 +140,22 @@ Respond ONLY in valid JSON:
         }
 
 
-
 def generate_next_question(formatted_cv, job_description, history, result_data, difficulty, type):
 
     job_description = job_description[:1500]
 
-    # 🧠 format history into readable conversation
+    # 🧠 format history
     history_text = ""
     for msg in history:
         role = "Interviewer" if msg["role"] == "ai" else "Candidate"
         history_text += f"{role}: {msg['content']}\n"
 
-    # 🔥 Extract last evaluation (CORE improvement)
+    # 🔥 Extract last evaluation
     last_eval_text = ""
     answers = result_data.get("answers", [])
 
     if answers:
         last = answers[-1]
-
         last_eval_text = f"""
 Last evaluation:
 - Score: {last.get("score")}
@@ -170,7 +165,7 @@ Last evaluation:
 """
 
     prompt = f"""
-You are a strict and intelligent interviewer conducting a {type} interview.
+You are a strict and realistic interviewer conducting a {type} interview.
 
 Candidate Profile:
 {formatted_cv}
@@ -183,31 +178,36 @@ Conversation so far:
 
 {last_eval_text}
 
-Instructions:
-- Ask ONE next question only
-- Adapt based on the LAST evaluation
+Your job:
+Decide whether to ask:
+1. A THEORY question
+2. A CODING question
 
-Behavior rules:
-- If score < 5 → simplify and probe fundamentals
-- If score 5-7 → ask clarification or real-world application
-- If score > 7 → go deeper technically or ask edge cases
-- If answer was vague → force specifics
-- If answer was strong → challenge decisions and trade-offs
-- Use "Next focus" topic if provided
+Decision rules:
 
-Question quality:
-- Must be specific to candidate context
-- Must feel like a real interviewer follow-up
-- Focus on reasoning, not definitions
+- CODING if:
+  • score >= 6 AND technical understanding is good
+  • OR difficulty is "hard"
+  • OR topic is practical (APIs, performance, DB, concurrency)
+
+- THEORY if:
+  • score < 6
+  • OR answer is vague
+  • OR fundamentals are weak
+
+Rules:
+- Do NOT ask coding questions twice in a row
+- Keep coding problems short (5–10 min max)
+- Ask for explanation, not just code
+- Target "next_focus"
+- Challenge weaknesses
 - Avoid generic questions
 
-Constraints:
-- Do NOT repeat previous questions
-- Match difficulty: {difficulty}
-- Ask ONLY ONE question
-- Do NOT explain anything
-
-Output ONLY the question.
+Respond ONLY in JSON:
+{{
+  "type": "theory" OR "coding",
+  "question": "actual question"
+}}
 """
 
     try:
@@ -225,12 +225,32 @@ Output ONLY the question.
             timeout=60.0
         )
 
-        data = response.json()
-        return data["response"].strip()
+        text = response.json()["response"].strip()
+
+        # ✅ Parse JSON safely
+        try:
+            result = json.loads(text)
+        except json.JSONDecodeError:
+            import re
+            match = re.search(r"\{.*\}", text, re.DOTALL)
+            if match:
+                result = json.loads(match.group())
+            else:
+                return {
+                    "type": "theory",
+                    "question": text
+                }
+
+        return {
+            "type": result.get("type", "theory"),
+            "question": result.get("question", text)
+        }
 
     except Exception:
-        return "Can you clarify your previous answer with more concrete details?"
-
+        return {
+            "type": "theory",
+            "question": "Can you clarify your previous answer with more concrete details?"
+        }
 
 def generate_final_report(result_json):
 
@@ -324,12 +344,6 @@ Respond ONLY in JSON:
     "hire_decision": "NO",
     "reason": "Incomplete evaluation"
 }
-
-
-
-
-
-
 
 
 # EXTRACT STRUCTURED DATA USING AI
