@@ -139,7 +139,6 @@ Respond ONLY in valid JSON:
             "next_focus": "general"
         }
 
-
 def generate_next_question(formatted_cv, job_description, history, result_data, difficulty, type):
 
     job_description = job_description[:1500]
@@ -150,22 +149,42 @@ def generate_next_question(formatted_cv, job_description, history, result_data, 
         role = "Interviewer" if msg["role"] == "ai" else "Candidate"
         history_text += f"{role}: {msg['content']}\n"
 
-    # 🔥 Extract last evaluation
-    last_eval_text = ""
     answers = result_data.get("answers", [])
+
+    # 🔥 Last evaluation
+    last_eval_text = ""
+    last_score = None
+    last_type = "theory"
 
     if answers:
         last = answers[-1]
+
+        last_score = last.get("score")
+        last_type = last.get("question_type", "theory")
+
         last_eval_text = f"""
 Last evaluation:
-- Score: {last.get("score")}
+- Score: {last_score}
 - Strengths: {", ".join(last.get("strengths", []))}
 - Weaknesses: {", ".join(last.get("weaknesses", []))}
 - Next focus: {last.get("next_focus")}
+- Last question type: {last_type}
 """
 
+    # 🔥 Covered topics
+    covered_topics = set()
+    topic_counts = {}
+
+    for ans in answers:
+        topic = ans.get("topic")
+        if topic:
+            covered_topics.add(topic)
+            topic_counts[topic] = topic_counts.get(topic, 0) + 1
+
+    topics_text = ", ".join(covered_topics) if covered_topics else "None"
+
     prompt = f"""
-You are a strict and realistic interviewer conducting a {type} interview.
+You are a strict and realistic interviewer conducting a {type} interview with difficulty {difficulty}.
 
 Candidate Profile:
 {formatted_cv}
@@ -177,6 +196,10 @@ Conversation so far:
 {history_text}
 
 {last_eval_text}
+
+Topics already covered:
+{topics_text}
+
 
 Your job:
 Decide whether to ask:
@@ -195,12 +218,31 @@ Decision rules:
   • OR answer is vague
   • OR fundamentals are weak
 
-Rules:
+STRICT RULES:
+
 - Do NOT ask coding questions twice in a row
-- Keep coding problems short (5–10 min max)
+- Last question type was: {last_type}
+
+- If the candidate fails twice on the same topic → SWITCH topic
+
+- Avoid repeating the same topic more than twice
+
+- Ensure the interview covers at least 2–3 different areas:
+  (backend, APIs, security, performance, debugging, architecture)
+
+- If answer is weak:
+  → ask simpler or clarifying question
+
+- If answer is strong:
+  → go deeper or switch to coding
+
+CODING RULES:
+- Keep problems short (5–10 minutes)
+- Real-world problems (NOT LeetCode)
 - Ask for explanation, not just code
-- Target "next_focus"
-- Challenge weaknesses
+
+THEORY RULES:
+- Ask "why", "how", "trade-offs"
 - Avoid generic questions
 
 Respond ONLY in JSON:
@@ -227,10 +269,10 @@ Respond ONLY in JSON:
 
         text = response.json()["response"].strip()
 
-        # ✅ Parse JSON safely
+        # ✅ Safe JSON parsing
         try:
             result = json.loads(text)
-        except json.JSONDecodeError:
+        except:
             import re
             match = re.search(r"\{.*\}", text, re.DOTALL)
             if match:
